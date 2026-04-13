@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>FLICK-SWORD</title>
+    <style>
+        /* CSS: Resets and Mobile Optimization */
+        body { 
+            margin: 0; 
+            padding: 0;
+            background: #0d0d12; 
+            overflow: hidden; 
+            touch-action: none; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            width: 100vw;
+        }
+        #ui { 
+            position: absolute; 
+            top: env(safe-area-inset-top, 20px); 
+            width: 100%; 
+            text-align: center; 
+            color: #00ff88; 
+            pointer-events: none; 
+            z-index: 10;
+        }
+        #score { 
+            font-size: clamp(3rem, 10vw, 5rem); 
+            margin: 0; 
+            font-weight: 900; 
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        }
+        #hint { 
+            font-size: 14px; 
+            opacity: 0.6; 
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        canvas { 
+            display: block; 
+            touch-action: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="score">0</div>
+        <div id="hint">FLICK TO CLIMB</div>
+    </div>
+    <canvas id="game"></canvas>
+
+<script>
+    /* JAVASCRIPT: Game Engine & Physics */
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+
+    // Handle high-density mobile displays (Retina/OLED)
+    function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        ctx.scale(dpr, dpr);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Game Variables
+    let score = 0;
+    let isDragging = false;
+    let touchStart = { x: 0, y: 0 };
+    let touchCurrent = { x: 0, y: 0 };
+    let targets = [];
+    const gravity = 0.35;
+    const friction = 0.985;
+
+    let player = {
+        x: window.innerWidth / 2,
+        y: window.innerHeight - 100,
+        vx: 0, vy: 0,
+        angle: -Math.PI / 2,
+        radius: 12,
+        state: 'STUCK' // STUCK, FLYING
+    };
+
+    function spawnTarget() {
+        if (targets.length < 5) {
+            targets.push({
+                x: 50 + Math.random() * (window.innerWidth - 100),
+                y: -60,
+                r: 25,
+                rot: Math.random() * Math.PI
+            });
+        }
+    }
+
+    function resetGame() {
+        score = 0;
+        scoreEl.innerText = score;
+        player.x = window.innerWidth / 2;
+        player.y = window.innerHeight - 100;
+        player.vx = 0; player.vy = 0;
+        player.state = 'STUCK';
+        targets = [];
+    }
+
+    function update() {
+        if (player.state === 'FLYING') {
+            player.vy += gravity;
+            player.vx *= friction;
+            player.x += player.vx;
+            player.y += player.vy;
+            // Blade points in direction of travel
+            player.angle = Math.atan2(player.vy, player.vx);
+
+            // Wall Collision (Stick to walls)
+            if (player.x < player.radius || player.x > window.innerWidth - player.radius) {
+                player.state = 'STUCK';
+                player.vx = 0; player.vy = 0;
+                player.x = player.x < player.radius ? player.radius : window.innerWidth - player.radius;
+                if (navigator.vibrate) navigator.vibrate(10);
+            }
+        }
+
+        // Target Logic
+        if (Math.random() < 0.02) spawnTarget();
+        for (let i = targets.length - 1; i >= 0; i--) {
+            let t = targets[i];
+            t.y += 2 + (score * 0.1); // Get faster as you score
+            
+            // Collision Detection
+            const dist = Math.hypot(player.x - t.x, player.y - t.y);
+            if (dist < t.r + player.radius && player.state === 'FLYING') {
+                targets.splice(i, 1);
+                score++;
+                scoreEl.innerText = score;
+                if (navigator.vibrate) navigator.vibrate(20);
+            }
+            // Remove off-screen targets
+            else if (t.y > window.innerHeight + 100) {
+                targets.splice(i, 1);
+            }
+        }
+
+        // Death condition
+        if (player.y > window.innerHeight + 50) resetGame();
+    }
+
+    function draw() {
+        // Clear screen with slight motion blur effect
+        ctx.fillStyle = '#0d0d12';
+        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+        // Draw Aiming Guide
+        if (isDragging && player.state === 'STUCK') {
+            const dx = touchStart.x - touchCurrent.x;
+            const dy = touchStart.y - touchCurrent.y;
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y);
+            ctx.lineTo(player.x + dx * 0.6, player.y + dy * 0.6);
+            ctx.strokeStyle = 'rgba(0, 255, 136, 0.4)';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([5, 8]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw Targets (Neon Orbs)
+        targets.forEach(t => {
+            ctx.beginPath();
+            ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
+            ctx.strokeStyle = '#ff0055';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255, 0, 85, 0.1)';
+            ctx.fill();
+            // Glow effect
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ff0055';
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        });
+
+        // Draw Player (The Blade)
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.rotate(player.angle);
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#00ff88';
+        ctx.beginPath();
+        ctx.moveTo(30, 0); // Tip
+        ctx.lineTo(-10, -12); // Back top
+        ctx.lineTo(-5, 0); // Inner notch
+        ctx.lineTo(-10, 12); // Back bottom
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        update();
+        requestAnimationFrame(draw);
+    }
+
+    // Touch Event Handlers
+    function onStart(x, y) {
+        if (player.state === 'STUCK') {
+            isDragging = true;
+            touchStart = { x, y };
+            touchCurrent = { x, y };
+        }
+    }
+
+    function onMove(x, y) {
+        if (isDragging) {
+            touchCurrent = { x, y };
+        }
+    }
+
+    function onEnd() {
+        if (!isDragging) return;
+        const dx = touchStart.x - touchCurrent.x;
+        const dy = touchStart.y - touchCurrent.y;
+        
+        // Launch if drag distance is significant
+        if (Math.hypot(dx, dy) > 20) {
+            player.vx = dx * 0.14;
+            player.vy = dy * 0.14;
+            player.state = 'FLYING';
+        }
+        isDragging = false;
+    }
+
+    // Listeners for Mouse & Touch
+    window.addEventListener('mousedown', e => onStart(e.clientX, e.clientY));
+    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', onEnd);
+
+    window.addEventListener('touchstart', e => {
+        e.preventDefault();
+        const t = e.touches[0];
+        onStart(t.clientX, t.clientY);
+    }, { passive: false });
+
+    window.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const t = e.touches[0];
+        onMove(t.clientX, t.clientY);
+    }, { passive: false });
+
+    window.addEventListener('touchend', onEnd);
+
+    // Kick off animation
+    draw();
+</script>
+</body>
+</html>
