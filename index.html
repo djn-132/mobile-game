@@ -1,152 +1,121 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>FLICK-SWORD PRO</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEON-STREAK</title>
     <style>
-        body { margin: 0; background: #0d0d12; overflow: hidden; touch-action: none; font-family: sans-serif; }
-        #ui { position: absolute; top: 40px; width: 100%; text-align: center; color: #00ff88; pointer-events: none; z-index: 10; }
-        #score { font-size: 80px; font-weight: 900; margin: 0; opacity: 0.8; }
-        #msg { font-size: 14px; letter-spacing: 2px; text-transform: uppercase; }
-        canvas { display: block; }
+        body { margin: 0; background: #050505; overflow: hidden; touch-action: none; font-family: 'Courier New', monospace; }
+        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00d4ff; pointer-events: none; }
+        #score { font-size: 50px; font-weight: bold; margin: 0; text-shadow: 0 0 10px #00d4ff; }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <div id="score">0</div>
-        <div id="msg">FLICK TO START</div>
-    </div>
+    <div id="ui"><div id="score">0</div></div>
     <canvas id="g"></canvas>
 <script>
-    const c = document.getElementById('g'), x = c.getContext('2d');
-    let w, h, score = 0, targets = [], drag = false, start = {x:0,y:0}, cur = {x:0,y:0};
-    
-    // ADJUSTED PHYSICS FOR BETTER PLAYABILITY
-    const GRAVITY = 0.22;       // Lower = floatier
-    const LAUNCH_POWER = 0.18;  // Higher = faster launch
-    const FRICTION = 0.99;      // Air resistance
-    
-    let p = { x: 0, y: 0, vx: 0, vy: 0, a: -Math.PI/2, s: 'STUCK' };
+    const canvas = document.getElementById('g'), ctx = canvas.getContext('2d');
+    let w, h, score = 0, particles = [], trail = [], obstacles = [];
+    let player = { x: 0, y: 0, targetX: 0, speed: 4 };
 
-    function res() {
-        const d = window.devicePixelRatio || 1;
+    function init() {
         w = window.innerWidth; h = window.innerHeight;
-        c.width = w * d; c.height = h * d;
-        c.style.width = w + 'px'; c.style.height = h + 'px';
-        x.scale(d, d);
-        p.x = w/2; p.y = h-150;
+        canvas.width = w * devicePixelRatio; canvas.height = h * devicePixelRatio;
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        player.x = w / 2; player.targetX = w / 2;
+        player.y = h * 0.8;
     }
-    window.addEventListener('resize', res); res();
+    window.addEventListener('resize', init);
+    init();
 
-    function loop() {
-        x.fillStyle = '#0d0d12'; 
-        x.fillRect(0, 0, w, h);
-
-        if (p.s === 'FLYING') {
-            p.vy += GRAVITY;
-            p.vx *= FRICTION;
-            p.x += p.vx;
-            p.y += p.vy;
-            p.a = Math.atan2(p.vy, p.vx);
-
-            // Wall Stick Logic
-            if (p.x < 15 || p.x > w - 15) {
-                p.s = 'STUCK';
-                p.vx = 0; p.vy = 0;
-                p.x = p.x < 15 ? 15 : w - 15;
-            }
+    function spawnObstacle() {
+        if (Math.random() < 0.05) {
+            obstacles.push({
+                x: Math.random() * w,
+                y: -50,
+                size: 20 + Math.random() * 30,
+                speed: 2 + Math.random() * 3,
+                type: Math.random() > 0.8 ? 'point' : 'wall'
+            });
         }
+    }
 
-        // Spawn Targets (Slightly larger hitboxes)
-        if (Math.random() < 0.015 && targets.length < 5) {
-            targets.push({x: 50 + Math.random()*(w-100), y: -50, r: 28});
-        }
+    function update() {
+        // Smooth Movement (Easing)
+        // As score increases, the "weight" makes player.x lag further behind player.targetX
+        let weight = Math.min(0.1, 0.2 - (score * 0.001)); 
+        player.x += (player.targetX - player.x) * weight;
 
-        targets.forEach((t, i) => {
-            t.y += 1.5 + (score * 0.05);
-            x.beginPath(); 
-            x.arc(t.x, t.y, t.r, 0, 7); 
-            x.strokeStyle = '#ff0055'; 
-            x.lineWidth = 3;
-            x.stroke();
+        // Update Trail
+        trail.unshift({x: player.x, y: player.y});
+        if (trail.length > 20 + (score * 2)) trail.pop();
+
+        // Update Obstacles
+        spawnObstacle();
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let o = obstacles[i];
+            o.y += o.speed;
 
             // Collision Detection
-            if (Math.hypot(p.x - t.x, p.y - t.y) < t.r + 20 && p.s === 'FLYING') {
-                targets.splice(i, 1);
-                score++;
-                document.getElementById('score').innerText = score;
-                document.getElementById('msg').innerText = "NICE!";
+            let d = Math.hypot(player.x - o.x, player.y - o.y);
+            if (d < o.size) {
+                if (o.type === 'point') {
+                    score += 5;
+                    obstacles.splice(i, 1);
+                } else {
+                    // Game Over
+                    score = 0;
+                    obstacles = [];
+                    trail = [];
+                }
             }
-        });
-
-        // Fail Logic
-        if (p.y > h + 100) {
-            score = 0;
-            document.getElementById('score').innerText = 0;
-            document.getElementById('msg').innerText = "FALLEN! TRY AGAIN";
-            p.y = h-150; p.x = w/2; p.s = 'STUCK'; targets = [];
+            if (o.y > h + 50) obstacles.splice(i, 1);
         }
-
-        // Draw Aim Line
-        if (drag && p.s === 'STUCK') {
-            x.beginPath();
-            x.moveTo(p.x, p.y);
-            x.lineTo(p.x + (start.x - cur.x)*0.5, p.y + (start.y - cur.y)*0.5);
-            x.strokeStyle = '#00ff88';
-            x.lineWidth = 2;
-            x.setLineDash([5, 5]);
-            x.stroke();
-            x.setLineDash([]);
-        }
-
-        // Draw Player
-        x.save();
-        x.translate(p.x, p.y);
-        x.rotate(p.a);
-        x.shadowBlur = 15; x.shadowColor = '#00ff88';
-        x.fillStyle = '#fff';
-        x.beginPath();
-        x.moveTo(25, 0); x.lineTo(-10, -12); x.lineTo(-10, 12);
-        x.fill();
-        x.restore();
-        x.shadowBlur = 0;
-
-        requestAnimationFrame(loop);
+        document.getElementById('score').innerText = score;
     }
 
-    const inputS = (ex, ey) => { 
-        if(p.s==='STUCK'){
-            drag=true; 
-            start={x:ex, y:ey}; 
-            cur={x:ex, y:ey};
-        }
-    };
-    const inputM = (ex, ey) => { if(drag) cur={x:ex, y:ey}; };
-    const inputE = () => { 
-        if(drag){
-            let dx = start.x - cur.x;
-            let dy = start.y - cur.y;
-            if(Math.hypot(dx, dy) > 15) {
-                p.vx = dx * LAUNCH_POWER;
-                p.vy = dy * LAUNCH_POWER;
-                p.s = 'FLYING';
-                document.getElementById('msg').innerText = "";
+    function draw() {
+        ctx.fillStyle = 'rgba(5, 5, 5, 0.3)'; // Motion blur effect
+        ctx.fillRect(0, 0, w, h);
+
+        // Draw Trail (Neon Streak)
+        ctx.beginPath();
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00d4ff';
+        ctx.strokeStyle = '#00d4ff';
+        ctx.lineWidth = 4;
+        trail.forEach((p, i) => {
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Draw Obstacles
+        obstacles.forEach(o => {
+            ctx.beginPath();
+            if (o.type === 'point') {
+                ctx.fillStyle = '#fff';
+                ctx.arc(o.x, o.y, 8, 0, Math.PI * 2);
+            } else {
+                ctx.fillStyle = '#ff0055';
+                ctx.fillRect(o.x - o.size/2, o.y - o.size/2, o.size, o.size);
             }
-            drag = false;
-        }
+            ctx.fill();
+        });
+
+        update();
+        requestAnimationFrame(draw);
+    }
+
+    // Controls
+    const move = (e) => {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        player.targetX = clientX;
     };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('touchmove', (e) => { e.preventDefault(); move(e); }, {passive:false});
 
-    window.addEventListener('touchstart', e => { e.preventDefault(); inputS(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
-    window.addEventListener('touchmove', e => { e.preventDefault(); inputM(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
-    window.addEventListener('touchend', inputE);
-    
-    // Mouse support for testing
-    window.addEventListener('mousedown', e => inputS(e.clientX, e.clientY));
-    window.addEventListener('mousemove', e => inputM(e.clientX, e.clientY));
-    window.addEventListener('mouseup', inputE);
-
-    loop();
+    draw();
 </script>
 </body>
 </html>
