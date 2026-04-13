@@ -3,257 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>FLICK-SWORD</title>
+    <title>FLICK-SWORD PRO</title>
     <style>
-        /* CSS: Resets and Mobile Optimization */
-        body { 
-            margin: 0; 
-            padding: 0;
-            background: #0d0d12; 
-            overflow: hidden; 
-            touch-action: none; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            height: 100vh;
-            width: 100vw;
-        }
-        #ui { 
-            position: absolute; 
-            top: env(safe-area-inset-top, 20px); 
-            width: 100%; 
-            text-align: center; 
-            color: #00ff88; 
-            pointer-events: none; 
-            z-index: 10;
-        }
-        #score { 
-            font-size: clamp(3rem, 10vw, 5rem); 
-            margin: 0; 
-            font-weight: 900; 
-            text-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
-        }
-        #hint { 
-            font-size: 14px; 
-            opacity: 0.6; 
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
-        canvas { 
-            display: block; 
-            touch-action: none;
-        }
+        body { margin: 0; background: #0d0d12; overflow: hidden; touch-action: none; font-family: sans-serif; }
+        #ui { position: absolute; top: 40px; width: 100%; text-align: center; color: #00ff88; pointer-events: none; z-index: 10; }
+        #score { font-size: 80px; font-weight: 900; margin: 0; opacity: 0.8; }
+        #msg { font-size: 14px; letter-spacing: 2px; text-transform: uppercase; }
+        canvas { display: block; }
     </style>
 </head>
 <body>
     <div id="ui">
         <div id="score">0</div>
-        <div id="hint">FLICK TO CLIMB</div>
+        <div id="msg">FLICK TO START</div>
     </div>
-    <canvas id="game"></canvas>
-
+    <canvas id="g"></canvas>
 <script>
-    /* JAVASCRIPT: Game Engine & Physics */
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const scoreEl = document.getElementById('score');
+    const c = document.getElementById('g'), x = c.getContext('2d');
+    let w, h, score = 0, targets = [], drag = false, start = {x:0,y:0}, cur = {x:0,y:0};
+    
+    // ADJUSTED PHYSICS FOR BETTER PLAYABILITY
+    const GRAVITY = 0.22;       // Lower = floatier
+    const LAUNCH_POWER = 0.18;  // Higher = faster launch
+    const FRICTION = 0.99;      // Air resistance
+    
+    let p = { x: 0, y: 0, vx: 0, vy: 0, a: -Math.PI/2, s: 'STUCK' };
 
-    // Handle high-density mobile displays (Retina/OLED)
-    function resize() {
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = window.innerWidth * dpr;
-        canvas.height = window.innerHeight * dpr;
-        canvas.style.width = window.innerWidth + 'px';
-        canvas.style.height = window.innerHeight + 'px';
-        ctx.scale(dpr, dpr);
+    function res() {
+        const d = window.devicePixelRatio || 1;
+        w = window.innerWidth; h = window.innerHeight;
+        c.width = w * d; c.height = h * d;
+        c.style.width = w + 'px'; c.style.height = h + 'px';
+        x.scale(d, d);
+        p.x = w/2; p.y = h-150;
     }
-    window.addEventListener('resize', resize);
-    resize();
+    window.addEventListener('resize', res); res();
 
-    // Game Variables
-    let score = 0;
-    let isDragging = false;
-    let touchStart = { x: 0, y: 0 };
-    let touchCurrent = { x: 0, y: 0 };
-    let targets = [];
-    const gravity = 0.35;
-    const friction = 0.985;
+    function loop() {
+        x.fillStyle = '#0d0d12'; 
+        x.fillRect(0, 0, w, h);
 
-    let player = {
-        x: window.innerWidth / 2,
-        y: window.innerHeight - 100,
-        vx: 0, vy: 0,
-        angle: -Math.PI / 2,
-        radius: 12,
-        state: 'STUCK' // STUCK, FLYING
-    };
+        if (p.s === 'FLYING') {
+            p.vy += GRAVITY;
+            p.vx *= FRICTION;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.a = Math.atan2(p.vy, p.vx);
 
-    function spawnTarget() {
-        if (targets.length < 5) {
-            targets.push({
-                x: 50 + Math.random() * (window.innerWidth - 100),
-                y: -60,
-                r: 25,
-                rot: Math.random() * Math.PI
-            });
-        }
-    }
-
-    function resetGame() {
-        score = 0;
-        scoreEl.innerText = score;
-        player.x = window.innerWidth / 2;
-        player.y = window.innerHeight - 100;
-        player.vx = 0; player.vy = 0;
-        player.state = 'STUCK';
-        targets = [];
-    }
-
-    function update() {
-        if (player.state === 'FLYING') {
-            player.vy += gravity;
-            player.vx *= friction;
-            player.x += player.vx;
-            player.y += player.vy;
-            // Blade points in direction of travel
-            player.angle = Math.atan2(player.vy, player.vx);
-
-            // Wall Collision (Stick to walls)
-            if (player.x < player.radius || player.x > window.innerWidth - player.radius) {
-                player.state = 'STUCK';
-                player.vx = 0; player.vy = 0;
-                player.x = player.x < player.radius ? player.radius : window.innerWidth - player.radius;
-                if (navigator.vibrate) navigator.vibrate(10);
+            // Wall Stick Logic
+            if (p.x < 15 || p.x > w - 15) {
+                p.s = 'STUCK';
+                p.vx = 0; p.vy = 0;
+                p.x = p.x < 15 ? 15 : w - 15;
             }
         }
 
-        // Target Logic
-        if (Math.random() < 0.02) spawnTarget();
-        for (let i = targets.length - 1; i >= 0; i--) {
-            let t = targets[i];
-            t.y += 2 + (score * 0.1); // Get faster as you score
-            
+        // Spawn Targets (Slightly larger hitboxes)
+        if (Math.random() < 0.015 && targets.length < 5) {
+            targets.push({x: 50 + Math.random()*(w-100), y: -50, r: 28});
+        }
+
+        targets.forEach((t, i) => {
+            t.y += 1.5 + (score * 0.05);
+            x.beginPath(); 
+            x.arc(t.x, t.y, t.r, 0, 7); 
+            x.strokeStyle = '#ff0055'; 
+            x.lineWidth = 3;
+            x.stroke();
+
             // Collision Detection
-            const dist = Math.hypot(player.x - t.x, player.y - t.y);
-            if (dist < t.r + player.radius && player.state === 'FLYING') {
+            if (Math.hypot(p.x - t.x, p.y - t.y) < t.r + 20 && p.s === 'FLYING') {
                 targets.splice(i, 1);
                 score++;
-                scoreEl.innerText = score;
-                if (navigator.vibrate) navigator.vibrate(20);
+                document.getElementById('score').innerText = score;
+                document.getElementById('msg').innerText = "NICE!";
             }
-            // Remove off-screen targets
-            else if (t.y > window.innerHeight + 100) {
-                targets.splice(i, 1);
-            }
-        }
-
-        // Death condition
-        if (player.y > window.innerHeight + 50) resetGame();
-    }
-
-    function draw() {
-        // Clear screen with slight motion blur effect
-        ctx.fillStyle = '#0d0d12';
-        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-
-        // Draw Aiming Guide
-        if (isDragging && player.state === 'STUCK') {
-            const dx = touchStart.x - touchCurrent.x;
-            const dy = touchStart.y - touchCurrent.y;
-            ctx.beginPath();
-            ctx.moveTo(player.x, player.y);
-            ctx.lineTo(player.x + dx * 0.6, player.y + dy * 0.6);
-            ctx.strokeStyle = 'rgba(0, 255, 136, 0.4)';
-            ctx.lineWidth = 4;
-            ctx.setLineDash([5, 8]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // Draw Targets (Neon Orbs)
-        targets.forEach(t => {
-            ctx.beginPath();
-            ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
-            ctx.strokeStyle = '#ff0055';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            ctx.fillStyle = 'rgba(255, 0, 85, 0.1)';
-            ctx.fill();
-            // Glow effect
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = '#ff0055';
-            ctx.stroke();
-            ctx.shadowBlur = 0;
         });
 
-        // Draw Player (The Blade)
-        ctx.save();
-        ctx.translate(player.x, player.y);
-        ctx.rotate(player.angle);
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = '#00ff88';
-        ctx.beginPath();
-        ctx.moveTo(30, 0); // Tip
-        ctx.lineTo(-10, -12); // Back top
-        ctx.lineTo(-5, 0); // Inner notch
-        ctx.lineTo(-10, 12); // Back bottom
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-
-        update();
-        requestAnimationFrame(draw);
-    }
-
-    // Touch Event Handlers
-    function onStart(x, y) {
-        if (player.state === 'STUCK') {
-            isDragging = true;
-            touchStart = { x, y };
-            touchCurrent = { x, y };
+        // Fail Logic
+        if (p.y > h + 100) {
+            score = 0;
+            document.getElementById('score').innerText = 0;
+            document.getElementById('msg').innerText = "FALLEN! TRY AGAIN";
+            p.y = h-150; p.x = w/2; p.s = 'STUCK'; targets = [];
         }
-    }
 
-    function onMove(x, y) {
-        if (isDragging) {
-            touchCurrent = { x, y };
+        // Draw Aim Line
+        if (drag && p.s === 'STUCK') {
+            x.beginPath();
+            x.moveTo(p.x, p.y);
+            x.lineTo(p.x + (start.x - cur.x)*0.5, p.y + (start.y - cur.y)*0.5);
+            x.strokeStyle = '#00ff88';
+            x.lineWidth = 2;
+            x.setLineDash([5, 5]);
+            x.stroke();
+            x.setLineDash([]);
         }
+
+        // Draw Player
+        x.save();
+        x.translate(p.x, p.y);
+        x.rotate(p.a);
+        x.shadowBlur = 15; x.shadowColor = '#00ff88';
+        x.fillStyle = '#fff';
+        x.beginPath();
+        x.moveTo(25, 0); x.lineTo(-10, -12); x.lineTo(-10, 12);
+        x.fill();
+        x.restore();
+        x.shadowBlur = 0;
+
+        requestAnimationFrame(loop);
     }
 
-    function onEnd() {
-        if (!isDragging) return;
-        const dx = touchStart.x - touchCurrent.x;
-        const dy = touchStart.y - touchCurrent.y;
-        
-        // Launch if drag distance is significant
-        if (Math.hypot(dx, dy) > 20) {
-            player.vx = dx * 0.14;
-            player.vy = dy * 0.14;
-            player.state = 'FLYING';
+    const inputS = (ex, ey) => { 
+        if(p.s==='STUCK'){
+            drag=true; 
+            start={x:ex, y:ey}; 
+            cur={x:ex, y:ey};
         }
-        isDragging = false;
-    }
+    };
+    const inputM = (ex, ey) => { if(drag) cur={x:ex, y:ey}; };
+    const inputE = () => { 
+        if(drag){
+            let dx = start.x - cur.x;
+            let dy = start.y - cur.y;
+            if(Math.hypot(dx, dy) > 15) {
+                p.vx = dx * LAUNCH_POWER;
+                p.vy = dy * LAUNCH_POWER;
+                p.s = 'FLYING';
+                document.getElementById('msg').innerText = "";
+            }
+            drag = false;
+        }
+    };
 
-    // Listeners for Mouse & Touch
-    window.addEventListener('mousedown', e => onStart(e.clientX, e.clientY));
-    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
-    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchstart', e => { e.preventDefault(); inputS(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+    window.addEventListener('touchmove', e => { e.preventDefault(); inputM(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+    window.addEventListener('touchend', inputE);
+    
+    // Mouse support for testing
+    window.addEventListener('mousedown', e => inputS(e.clientX, e.clientY));
+    window.addEventListener('mousemove', e => inputM(e.clientX, e.clientY));
+    window.addEventListener('mouseup', inputE);
 
-    window.addEventListener('touchstart', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        onStart(t.clientX, t.clientY);
-    }, { passive: false });
-
-    window.addEventListener('touchmove', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        onMove(t.clientX, t.clientY);
-    }, { passive: false });
-
-    window.addEventListener('touchend', onEnd);
-
-    // Kick off animation
-    draw();
+    loop();
 </script>
 </body>
 </html>
